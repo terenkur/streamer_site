@@ -1,81 +1,50 @@
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from sqlalchemy import create_engine, Column, String, Integer, ForeignKey, func
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, relationship
-import os
+from typing import List, Dict
 
 app = FastAPI()
 
-DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///../db.sqlite3")
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {})
-Base = declarative_base()
-SessionLocal = sessionmaker(bind=engine)
+# Разрешаем запросы с любых источников (или можешь указать адрес фронта)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # или ["https://frontend-site-production.up.railway.app"]
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-class User(Base):
-    __tablename__ = 'users'
-    username = Column(String, primary_key=True)
-    vote = relationship("Vote", back_populates="user", uselist=False)
+# Хранилище игр и голосов
+games: Dict[str, Dict[str, List[str] or int]] = {
+    "Dark Souls": {"votes": 2, "voters": ["alice", "bob"]},
+    "Hades": {"votes": 1, "voters": ["charlie"]},
+    "Stardew Valley": {"votes": 0, "voters": []},
+}
 
-class Game(Base):
-    __tablename__ = 'games'
-    id = Column(Integer, primary_key=True)
-    name = Column(String, unique=True)
-    votes = relationship("Vote", back_populates="game")
-
-class Vote(Base):
-    __tablename__ = 'votes'
-    id = Column(Integer, primary_key=True)
-    username = Column(String, ForeignKey('users.username'))
-    game_id = Column(Integer, ForeignKey('games.id'))
-    user = relationship("User", back_populates="vote")
-    game = relationship("Game", back_populates="votes")
-
-Base.metadata.create_all(engine)
-
-class VoteInput(BaseModel):
+# Модель запроса на голосование
+class Vote(BaseModel):
     username: str
     game: str
 
-@app.post("/vote")
-def vote(data: VoteInput):
-    db = SessionLocal()
-    user = db.query(User).filter_by(username=data.username).first()
-    game = db.query(Game).filter_by(name=data.game).first()
-    if not game:
-        db.close()
-        raise HTTPException(status_code=404, detail="Игра не найдена")
-
-    if not user:
-        user = User(username=data.username)
-        db.add(user)
-        db.commit()
-
-    existing_vote = db.query(Vote).filter_by(username=data.username).first()
-    if existing_vote:
-        existing_vote.game = game
-    else:
-        vote = Vote(username=data.username, game=game)
-        db.add(vote)
-
-    db.commit()
-    db.close()
-    return {"status": "ok"}
-
 @app.get("/games")
 def get_games():
-    db = SessionLocal()
-    games = db.query(Game.name, func.count(Vote.id).label('votes')).join(Vote, isouter=True).group_by(Game.id).all()
-    db.close()
-    return [{"game": g[0], "votes": g[1]} for g in games]
+    return [
+        {"game": name, "votes": data["votes"], "voters": data["voters"]}
+        for name, data in games.items()
+    ]
 
-@app.post("/games")
-def add_game(game: str = Query(...)):
-    db = SessionLocal()
-    if db.query(Game).filter_by(name=game).first():
-        db.close()
-        raise HTTPException(status_code=400, detail="Такая игра уже есть")
-    db.add(Game(name=game))
-    db.commit()
-    db.close()
-    return {"status": "добавлено"}
+@app.post("/vote")
+def vote(vote: Vote):
+    game = vote.game.strip()
+    user = vote.username.strip().lower()
+
+    if game not in games:
+        raise HTTPException(status_code=404, detail="Игра не найдена")
+
+    if user in games[game]["voters"]:
+        raise HTTPException(status_code=400, detail="Пользователь уже голосовал за эту игру")
+
+    games[game]["votes"] += 1
+    games[game]["voters"].append(user)
+
+    return {"message": "Голос засчитан!"}
