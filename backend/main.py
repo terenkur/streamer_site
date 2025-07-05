@@ -1,44 +1,75 @@
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
-from typing import List, Dict, Optional
+from jose import jwt, JWTError
+from typing import List, Dict
+import time
 
 app = FastAPI()
 
+SECRET_KEY = "your-very-secret-key"
 ADMIN_PASSWORD = "secret123"
+ALGORITHM = "HS256"
+TOKEN_EXPIRE_SECONDS = 3600
+
+security = HTTPBearer()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"],  # можно ограничить фронтом
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Игры и голоса в памяти (пока без базы)
+# Хранилище
 games: Dict[str, Dict[str, List[str] or int]] = {
     "Dark Souls": {"votes": 2, "voters": ["alice", "bob"]},
     "Hades": {"votes": 1, "voters": ["charlie"]},
     "Stardew Valley": {"votes": 0, "voters": []},
 }
 
+# Модели
 class Vote(BaseModel):
     username: str
     game: str
 
+class LoginData(BaseModel):
+    password: str
+
 class GameAdd(BaseModel):
     game: str
-    admin_password: str
 
 class GameEdit(BaseModel):
     old_name: str
     new_name: str
     new_votes: int
-    admin_password: str
 
 class GameDelete(BaseModel):
     game: str
-    admin_password: str
+
+# Авторизация
+def create_token() -> str:
+    payload = {
+        "sub": "admin",
+        "exp": time.time() + TOKEN_EXPIRE_SECONDS
+    }
+    return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
+
+def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    try:
+        jwt.decode(credentials.credentials, SECRET_KEY, algorithms=[ALGORITHM])
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Неверный или просроченный токен")
+
+# Маршруты
+@app.post("/login")
+def login(data: LoginData):
+    if data.password != ADMIN_PASSWORD:
+        raise HTTPException(status_code=401, detail="Неверный пароль")
+    token = create_token()
+    return {"token": token}
 
 @app.get("/games")
 def get_games():
@@ -48,52 +79,42 @@ def get_games():
     ]
 
 @app.post("/vote")
-def vote(vote: Vote):
-    game = vote.game.strip()
-    user = vote.username.strip().lower()
+def vote(data: Vote):
+    game = data.game.strip()
+    user = data.username.strip().lower()
 
     if game not in games:
         raise HTTPException(status_code=404, detail="Игра не найдена")
-
     if user in games[game]["voters"]:
-        raise HTTPException(status_code=400, detail="Пользователь уже голосовал за эту игру")
+        raise HTTPException(status_code=400, detail="Уже голосовал")
 
     games[game]["votes"] += 1
     games[game]["voters"].append(user)
 
-    return {"message": "Голос засчитан!"}
+    return {"message": "Голос засчитан"}
 
 @app.post("/games")
-def add_game(data: GameAdd):
-    if data.admin_password != ADMIN_PASSWORD:
-        raise HTTPException(status_code=403, detail="Неверный пароль")
+def add_game(data: GameAdd, _: str = Depends(verify_token)):
     if data.game in games:
-        raise HTTPException(status_code=400, detail="Такая игра уже существует")
+        raise HTTPException(status_code=400, detail="Игра уже есть")
     games[data.game] = {"votes": 0, "voters": []}
     return {"message": "Игра добавлена"}
 
 @app.patch("/games")
-def edit_game(data: GameEdit):
-    if data.admin_password != ADMIN_PASSWORD:
-        raise HTTPException(status_code=403, detail="Неверный пароль")
+def edit_game(data: GameEdit, _: str = Depends(verify_token)):
     if data.old_name not in games:
         raise HTTPException(status_code=404, detail="Старая игра не найдена")
-
-    existing_voters = games[data.old_name]["voters"]
+    voters = games[data.old_name]["voters"]
     del games[data.old_name]
-
     games[data.new_name] = {
         "votes": data.new_votes,
-        "voters": existing_voters[:data.new_votes]  # обрезаем если нужно
+        "voters": voters[:data.new_votes]
     }
-
     return {"message": "Игра обновлена"}
 
 @app.delete("/games")
-def delete_game(data: GameDelete):
-    if data.admin_password != ADMIN_PASSWORD:
-        raise HTTPException(status_code=403, detail="Неверный пароль")
+def delete_game(data: GameDelete, _: str = Depends(verify_token)):
     if data.game not in games:
         raise HTTPException(status_code=404, detail="Игра не найдена")
     del games[data.game]
-    return {"message": "Игра удалена"}
+    return {"message": "Удалено"}
