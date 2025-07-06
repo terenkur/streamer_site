@@ -45,6 +45,7 @@ class GameEdit(BaseModel):
     old_name: str
     new_name: str
     new_votes: int
+    new_voters: List[str]
 
 class GameDelete(BaseModel):
     game: str
@@ -104,11 +105,11 @@ def add_game(data: GameAdd, _: str = Depends(verify_token)):
 def edit_game(data: GameEdit, _: str = Depends(verify_token)):
     if data.old_name not in games:
         raise HTTPException(status_code=404, detail="Старая игра не найдена")
-    voters = games[data.old_name]["voters"]
+
     del games[data.old_name]
     games[data.new_name] = {
         "votes": data.new_votes,
-        "voters": voters[:data.new_votes]
+        "voters": data.new_voters[:data.new_votes]  # обрезаем лишних
     }
     return {"message": "Игра обновлена"}
 
