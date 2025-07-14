@@ -131,12 +131,18 @@ wheel_settings = {
 }
 
 # Новые эндпоинты
-@app.get("/wheel-settings", dependencies=[Depends(verify_token)])
-def get_wheel_settings():
-    return {
-        "coefficient": 2.0,
-        "zero_votes_weight": 40
-    }
+@app.get("/wheel-settings")
+async def get_wheel_settings(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    try:
+        payload = jwt.decode(credentials.credentials, SECRET_KEY, algorithms=[ALGORITHM])
+        return wheel_settings
+    except JWTError as e:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
 @app.patch("/wheel-settings", dependencies=[Depends(verify_token)])
 def update_wheel_settings(settings: WheelSettings):
     global wheel_settings
