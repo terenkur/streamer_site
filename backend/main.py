@@ -119,3 +119,27 @@ def delete_game(data: GameDelete, _: str = Depends(verify_token)):
         raise HTTPException(status_code=404, detail="Игра не найдена")
     del games[data.game]
     return {"message": "Удалено"}
+
+class WheelSettings(BaseModel):
+    coefficient: float
+    zero_votes_weight: int
+
+# Добавляем в хранилище
+wheel_settings = {
+    "coefficient": 2.0,
+    "zero_votes_weight": 40
+}
+
+# Новые эндпоинты
+@app.get("/wheel-settings")
+def get_wheel_settings(_: str = Depends(verify_token)):
+    return wheel_settings
+
+@app.patch("/wheel-settings")
+def update_wheel_settings(
+    settings: WheelSettings, 
+    _: str = Depends(verify_token)
+):
+    wheel_settings["coefficient"] = settings.coefficient
+    wheel_settings["zero_votes_weight"] = settings.zero_votes_weight
+    return {"message": "Настройки обновлены"}
