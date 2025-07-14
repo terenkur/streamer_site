@@ -131,15 +131,14 @@ wheel_settings = {
 }
 
 # Новые эндпоинты
-@app.get("/wheel-settings")
-def get_wheel_settings(_: str = Depends(verify_token)):
-    return wheel_settings
-
-@app.patch("/wheel-settings")
-def update_wheel_settings(
-    settings: WheelSettings, 
-    _: str = Depends(verify_token)
-):
-    wheel_settings["coefficient"] = settings.coefficient
-    wheel_settings["zero_votes_weight"] = settings.zero_votes_weight
+@app.get("/wheel-settings", dependencies=[Depends(verify_token)])
+def get_wheel_settings():
+    return {
+        "coefficient": 2.0,
+        "zero_votes_weight": 40
+    }
+@app.patch("/wheel-settings", dependencies=[Depends(verify_token)])
+def update_wheel_settings(settings: WheelSettings):
+    global wheel_settings
+    wheel_settings = settings.dict()
     return {"message": "Настройки обновлены"}
