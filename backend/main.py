@@ -17,12 +17,15 @@ security = HTTPBearer()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # можно ограничить фронтом
+    allow_origins=[
+        "https://frontend-site-production.up.railway.app",
+        "http://localhost:3000"
+    ],
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["*"],
+    expose_headers=["*"]
 )
-
 # Хранилище
 games: Dict[str, Dict[str, List[str] or int]] = {
     "Dark Souls": {"votes": 2, "voters": ["alice", "bob"]},
@@ -148,3 +151,7 @@ def update_wheel_settings(settings: WheelSettings):
     global wheel_settings
     wheel_settings = settings.dict()
     return {"message": "Настройки обновлены"}
+
+@app.options("/wheel-settings")
+async def wheel_settings_options():
+    return {"message": "OK"}
